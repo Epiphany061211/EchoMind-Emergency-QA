@@ -1,0 +1,92 @@
+{
+  "meta": {
+    "plan_name": "某市突发地质灾害应急预案（示例数据）",
+    "admin_level": "市级（虚构示例）",
+    "source_file": "sample_plan_city.pdf（虚构示例文件）",
+    "source_pages": 47,
+    "extracted_date": "2026-10-09",
+    "status": "机器抽取+人工校对待确认",
+    "note": "本文件为演示用合成数据（synthetic sample），机构与职责文本均为虚构，仅用于展示数据结构。真实数据由抽取脚本从预案PDF派生生成，不手工维护。"
+  },
+  "nodes": [
+    {
+      "id": "市委、市政府（示例）",
+      "type": "party_gov",
+      "activation": "常态",
+      "duties": [],
+      "note": "市指挥部在其领导下工作（p6 示例）",
+      "page": 6
+    },
+    {
+      "id": "市应急委员会（示例）",
+      "type": "committee",
+      "activation": "常态",
+      "duties": [
+        {
+          "text": "统筹协调全市应急管理工作（示例）",
+          "page": 6
+        }
+      ]
+    },
+    {
+      "id": "市地质灾害指挥部（示例）",
+      "type": "headquarters",
+      "activation": "常态（可战时重组）",
+      "duties": [
+        {
+          "text": "负责组织、协调和指导全市地质灾害防治和应急处置（示例）",
+          "page": 6
+        }
+      ],
+      "note": "战时重组条款：超出市级处置能力时报请省级处置，指挥部临时扩编（p7 示例）"
+    },
+    {
+      "id": "市应急管理局（示例）",
+      "type": "department",
+      "activation": "常态",
+      "duties": [
+        {
+          "text": "承担指挥部办公室职责（示例）",
+          "page": 7
+        }
+      ]
+    },
+    {
+      "id": "市自然资源局（示例）",
+      "type": "department",
+      "activation": "常态",
+      "duties": [
+        {
+          "text": "提供地质勘察与预警技术支持（示例）",
+          "page": 7
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "市委、市政府（示例）",
+      "to": "市地质灾害指挥部（示例）",
+      "relation": "领导",
+      "page": 6
+    },
+    {
+      "from": "市应急委员会（示例）",
+      "to": "市地质灾害指挥部（示例）",
+      "relation": "统筹协调",
+      "page": 6
+    },
+    {
+      "from": "市地质灾害指挥部（示例）",
+      "to": "市应急管理局（示例）",
+      "relation": "办公室挂靠",
+      "page": 7
+    },
+    {
+      "from": "市地质灾害指挥部（示例）",
+      "to": "市自然资源局（示例）",
+      "relation": "成员单位",
+      "page": 7
+    }
+  ]
+}
