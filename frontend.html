@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>地质灾害应急预案智能助手</title>
+<style>
+  :root {
+    --paper: #FFFFFF;
+    --card: #FFFFFF;
+    --ink: #2E2C24;
+    --ink-soft: #6B6753;
+    --line: #F3a884;
+    --line-soft: rgba(243, 168, 132, .35);
+    --ball: #E8F174;
+    --ball-dark: #ECE340;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column;
+  }
+
+  /* ── 顶栏（无框线） ─────────────────────── */
+  header {
+    height: 56px; flex: none;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .title { font-size: 16px; font-weight: 600; letter-spacing: .5px; }
+  .brand .sub { font-size: 12px; color: var(--ink-soft); margin-left: 2px; }
+  nav a {
+    font-size: 13px; color: var(--line); text-decoration: none;
+    margin-left: 20px; padding: 4px 2px;
+    border-bottom: 1.5px solid transparent;
+    transition: border-color .2s;
+  }
+  nav a:hover { border-bottom-color: var(--line); }
+
+  /* ── 小球 ─────────────────────────────── */
+  .ball {
+    position: relative;
+    width: 34px; height: 34px; border-radius: 50%;
+    /* 内深外亮：瞳孔纯白，与之相对的球心用深部 #ECE340，四周过渡为浅部 #E8F174（磨砂玻璃球） */
+    background: radial-gradient(circle closest-side at 50% 50%, var(--ball-dark) 0 45%, var(--ball) 85% 100%);
+    flex: none;
+  }
+  /* 只有首屏的小球 + 气泡框 + 文字整体上下浮动，其他内容全部静止 */
+  .bob { display: flex; flex-direction: column; align-items: center; animation: float 3.2s ease-in-out infinite; position: relative; }
+  /* 透明悬停热区：静态覆盖 小球原位∪左移位∪气泡，几何不随位移变化。
+     若把 enter/leave 绑在会移动的小球/ballwrap 上，小球滑出指针下方会触发 leave，
+     滑回又触发 enter → peek 高频开关 → 小球左右抖动。热区静止则判定稳定。 */
+  .bob::before {
+    content: ""; position: absolute; top: 50%; left: 50%;
+    width: 540px; height: 100px;
+    transform: translate(-50%, -50%);
+  }
+  /* 触发区：小球悬停时整体左移，右侧腾出位置给气泡 */
+  .ballwrap { position: relative; display: flex; align-items: center; transition: transform .45s cubic-bezier(.3,.8,.3,1); }
+  /* 位移 134px：按实测整组宽度反推：让小球+气泡整组重心对准页面中心，
+     而不是只把小球挪出气泡位置——否则整组重心偏右约74px，小球看起来"没让够" */
+  .bob.peek .ballwrap { transform: translateX(-134px); }
+  .ball .eye {
+    position: absolute; top: 38%;
+    width: 4px; height: 6px; border-radius: 3px;
+    background: #FBFAF2;
+    animation: blink 4.2s infinite;
+  }
+  .ball .eye.l { left: 29%; }
+  .ball .eye.r { right: 29%; }
+  /* 视线：默认看向别处，用户输入时转过来 */
+  .ball .eye { transition: left .35s, right .35s, top .35s; }
+  .ball.away .eye.l { left: 21%; }
+  .ball.away .eye.r { right: 37%; }
+  .ball.away .eye { top: 33%; }
+  .ball.attentive .eye { top: 44%; }
+  /* 思考中：压缩弹跳 + 眼睛变横线 */
+  .ball.thinking { animation: think-bounce .7s ease-in-out infinite; }
+  .ball.thinking .eye { height: 2px; border-radius: 1px; animation: none; }
+  /* 回答完成：眼睛弯成笑眼 */
+  .ball.done .eye { height: 3px; border-radius: 2px; }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+  }
+  @keyframes blink {
+    0%, 92%, 100% { transform: scaleY(1); }
+    95% { transform: scaleY(.12); }
+  }
+  @keyframes think-bounce {
+    0%, 100% { transform: translateY(0) scale(1, 1); }
+    30% { transform: translateY(-5px) scale(.96, 1.05); }
+    60% { transform: translateY(0) scale(1.06, .9); }
+  }
+  .ball.big { width: 72px; height: 72px; }
+  .ball.big.away .eye.l { left: 19%; }
+  .ball.big.away .eye.r { right: 38%; }
+  .ball.big .eye { width: 8px; height: 12px; border-radius: 5px; }
+  .ball.big.thinking .eye { height: 4px; }
+  .ball.big.done .eye { height: 5px; border-radius: 3px; }
+
+  /* ── 主区 ─────────────────────────────── */
+  main {
+    flex: 1; overflow-y: auto;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 0 20px;
+  }
+  .col { width: 100%; max-width: 760px; display: flex; flex-direction: column; flex: 1; }
+
+  /* 欢迎屏：中间内容区垂直居中，注释行钉在页面最下方 */
+  #welcome {
+    flex: 1;
+    display: flex; flex-direction: column;
+    padding: 12px 0 24px; text-align: center;
+  }
+  .hero {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  /* 三段视觉间距呈"紧-松-紧"：小球→标题 = 对话框→示例 ≈ 20px（紧），标题→对话框 = 35px（松）
+     标题/列表文字的行框自带内建 leading、列表行有 11px padding，边距需反向补偿 */
+  #welcome h1 { font-size: 28px; font-weight: 600; margin: 11px 0 0; }
+  .foot-note { font-size: 13.5px; color: var(--ink-soft); line-height: 1.7; white-space: nowrap; }
+
+  /* 案例问题：四行文字列表（替代卡片） */
+  .qlist { width: 100%; max-width: 560px; margin-top: 4px; text-align: left; }
+  .qlist .q {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 11px 4px; font-size: 13.5px; line-height: 1.6;
+    cursor: pointer; color: var(--ink);
+    border-bottom: 1px solid var(--line-soft);
+    transition: color .15s, padding-left .15s;
+  }
+  .qlist .q:first-child { border-top: none; }
+  .qlist .q:hover { color: var(--line); padding-left: 10px; }
+  .qlist .q .tag { flex: none; font-size: 11px; color: var(--line); }
+
+  /* 消息 */
+  .msg { margin: 18px 0; display: flex; gap: 12px; }
+  .msg.user { justify-content: flex-end; animation: slide-up .35s cubic-bezier(.2,.9,.3,1); }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: none; }
+  }
+  /* 思考行：小球 + 忽明忽暗文字 */
+  .msg.thinking-row { align-items: center; animation: rise .25s ease; }
+  .think-text {
+    font-size: 13.5px; color: var(--ink-soft);
+    animation: poke-fade 1.6s ease-in-out infinite;
+  }
+  /* 飞行小球（FLIP 动画用的克隆体） */
+  .ball.flying {
+    position: fixed; z-index: 60; pointer-events: none;
+    transition: transform .55s cubic-bezier(.3,.8,.3,1), width .55s, height .55s;
+    animation: none;
+  }
+  .msg .bubble-user {
+    background: var(--line); color: #FBFAF2;
+    border-radius: 14px 14px 4px 14px;
+    padding: 11px 16px; font-size: 14.5px; line-height: 1.7;
+    max-width: 78%;
+  }
+  .msg .card-ai {
+    background: var(--card);
+    border: 1.5px solid var(--line-soft);
+    border-radius: 4px 14px 14px 14px;
+    padding: 14px 18px; font-size: 14.5px; line-height: 1.8;
+    flex: 1; min-width: 0;
+    animation: rise .3s ease;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  /* 思考轨迹（可回溯工程轨迹） */
+  .trace-head {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12.5px; color: var(--ink-soft);
+    cursor: pointer; user-select: none;
+    margin-bottom: 4px; width: fit-content;
+  }
+  .trace-head:hover { color: var(--line); }
+  .trace-head .tick { color: var(--line); font-weight: 700; }
+  .trace-head .arrow { transition: transform .2s; font-size: 10px; }
+  .trace-head.open .arrow { transform: rotate(90deg); }
+  .trace {
+    display: none;
+    margin: 6px 0 10px;
+    padding: 10px 14px;
+    background: #FFFFFF;
+    border-left: 2.5px solid var(--line);
+    border-radius: 0 8px 8px 0;
+    font-size: 12.5px; line-height: 1.9; color: var(--ink-soft);
+  }
+  .trace.open { display: block; }
+  .trace b { color: var(--ink); font-weight: 600; }
+
+  .meta { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .meta span {
+    font-size: 11px; color: var(--ink-soft);
+    border: 1px solid var(--line-soft); border-radius: 20px;
+    padding: 2px 9px;
+  }
+  .meta span.hl { color: var(--line); border-color: var(--line); }
+
+  /* markdown 渲染 */
+  .card-ai h1, .card-ai h2, .card-ai h3 { font-size: 15.5px; margin: 14px 0 6px; }
+  .card-ai h1:first-child, .card-ai h2:first-child, .card-ai h3:first-child { margin-top: 0; }
+  .card-ai p { margin: 6px 0; }
+  .card-ai ul, .card-ai ol { margin: 6px 0 6px 20px; }
+  .card-ai table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 13px; }
+  .card-ai th, .card-ai td { border: 1px solid var(--line-soft); padding: 6px 10px; text-align: left; }
+  .card-ai th { background: rgba(243, 168, 132, .15); }
+  .card-ai hr { border: none; border-top: 1px solid var(--line-soft); margin: 12px 0; }
+  .card-ai strong { color: var(--line); }
+  .card-ai.error { border-color: #B4452F; color: #B4452F; }
+
+  /* ── 引导气泡 ─────────────────────────── */
+  .ball.clickable { cursor: pointer; }
+  /* 气泡平时完全隐藏（不占布局、不可点），peek 时在小球右侧浮现 */
+  #guide {
+    position: absolute;
+    left: calc(100% + 14px); top: 50%;
+    background: var(--card);
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    padding: 9px 16px;
+    font-size: 13.5px;
+    white-space: nowrap;
+    cursor: pointer;
+    opacity: 0; transform: translateY(calc(-50% + 6px));
+    pointer-events: none;
+    transition: opacity .35s .08s, transform .35s .08s;
+  }
+  .bob.peek #guide { opacity: 1; transform: translateY(-50%); pointer-events: auto; }
+  /* 气泡箭头朝左，指向小球 */
+  #guide::before {
+    content: ""; position: absolute; left: -7px; top: 50%;
+    width: 12px; height: 12px; background: var(--card);
+    border-left: 1.5px solid var(--line); border-bottom: 1.5px solid var(--line);
+    transform: translateY(-50%) rotate(45deg);
+  }
+  #poke {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: 12px; color: var(--line);
+    animation: poke-fade 1.6s ease-in-out infinite;
+  }
+  @keyframes poke-fade {
+    0%, 100% { opacity: .15; }
+    50% { opacity: 1; }
+  }
+
+  /* ── 技术透视面板 ─────────────────────── */
+  .modal {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(46, 44, 36, .35);
+    display: none; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .modal.open { display: flex; }
+  .modal-card {
+    background: var(--card);
+    border: 1.5px solid var(--line);
+    border-radius: 18px;
+    width: 100%; max-width: 920px; max-height: 86vh; overflow-y: auto;
+    padding: 26px 30px 22px;
+    animation: rise .3s ease;
+  }
+  .modal-cols { display: grid; grid-template-columns: 300px 1fr; gap: 30px; }
+  @media (max-width: 760px) { .modal-cols { grid-template-columns: 1fr; } }
+  .band-intro { font-size: 13.5px; line-height: 1.9; margin: 4px 0 14px; }
+  .band-intro b { color: var(--line); }
+  .band-svg { width: 100%; height: auto; display: block; }
+  .band-cap { font-size: 11.5px; color: var(--ink-soft); text-align: center; margin-top: 4px; }
+  .modal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .modal-head h2 { font-size: 17px; flex: 1; }
+  .modal-close {
+    border: none; background: none; font-size: 20px; color: var(--ink-soft);
+    cursor: pointer; padding: 2px 6px; border-radius: 8px;
+  }
+  .modal-close:hover { background: rgba(243, 168, 132, .15); }
+  .modal-sub { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 20px; }
+
+  .stage { display: flex; gap: 14px; }
+  .stage .rail { display: flex; flex-direction: column; align-items: center; flex: none; width: 22px; }
+  .stage .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--ball); border: 2px solid var(--card);
+    outline: 1.5px solid var(--ball-dark);
+    margin-top: 4px; flex: none;
+  }
+  .stage .wire { width: 1.5px; flex: 1; background: var(--line); min-height: 14px; }
+  .stage:last-child .wire { display: none; }
+  .stage .body { padding-bottom: 18px; min-width: 0; }
+  .stage:last-child .body { padding-bottom: 4px; }
+  .stage .body b { font-size: 14px; display: block; margin-bottom: 3px; }
+  .stage .body span { font-size: 12.5px; color: var(--ink-soft); line-height: 1.65; display: block; }
+  .stage .body .agents { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+  .stage .body .agents em {
+    font-style: normal; font-size: 12.5px;
+    border-left: 2.5px solid var(--line); padding-left: 8px; color: var(--ink);
+  }
+  .stage .body .agents em i { font-style: normal; color: var(--ink-soft); }
+  .modal-foot {
+    margin-top: 16px; padding-top: 12px;
+    border-top: 1px solid var(--line-soft);
+    font-size: 12px; color: var(--ink-soft);
+  }
+  .modal-foot a { color: var(--line); }
+
+  /* ── 输入区（首屏位于页面正中，对话后回落底部） ── */
+  footer { flex: none; display: none; justify-content: center; padding: 14px 20px 20px; }
+  .inputbox {
+    width: 100%; max-width: 560px;
+    margin-top: 29px;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--card);
+    border: 1.5px solid var(--line-soft);
+    border-radius: 16px;
+    padding: 10px 10px 10px 18px;
+    transition: border-color .2s;
+  }
+  .inputbox:focus-within { border-color: var(--line); }
+  textarea {
+    flex: 1; border: none; outline: none; resize: none;
+    background: transparent;
+    font: inherit; font-size: 14.5px; line-height: 1.6;
+    max-height: 120px;
+  }
+  button.send {
+    flex: none;
+    width: 40px; height: 40px; border-radius: 12px;
+    border: none; cursor: pointer;
+    background: var(--ball);
+    display: flex; align-items: center; justify-content: center;
+    transition: background .2s, transform .1s;
+  }
+  button.send:hover { background: var(--ball-dark); }
+  button.send:active { transform: scale(.94); }
+  button.send:disabled { background: #EDEEC9; cursor: default; }
+  button.send svg { width: 24px; height: 24px; fill: #FBFAF2; transform: translateX(2px); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="title">地质灾害应急预案智能助手</span>
+    <span class="sub">EchoMind · 预案骨架 + 条文检索</span>
+  </div>
+  <nav>
+    <a href="http://127.0.0.1:8000/monitor" target="_blank">监控面板</a>
+    <a href="http://127.0.0.1:8000/docs" target="_blank">API 文档</a>
+  </nav>
+</header>
+
+<main>
+  <div class="col">
+    <div id="welcome">
+      <div class="hero">
+        <div class="bob">
+          <div class="ballwrap" id="ballwrap">
+            <div class="ball big away clickable" id="welcomeBall" onclick="openTech()">
+              <div class="eye l"></div><div class="eye r"></div>
+            </div>
+            <div id="guide" onclick="openTech()">你想知道我有什么不同吗？<span id="poke">← 戳戳它</span></div>
+          </div>
+        </div>
+        <h1>你好，我是应急预案助手</h1>
+        <div class="inputbox" id="inputbox">
+          <textarea id="input" rows="1" placeholder="输入你的问题"></textarea>
+        <button class="send" id="sendBtn" onclick="send()">
+          <svg viewBox="0 0 24 24"><path d="M3.4 20.4l17.4-7.5c.8-.35.8-1.45 0-1.8L3.4 3.6c-.66-.29-1.39.2-1.39.91l-.01 4.68c0 .5.37.93.87.99L17 12 2.87 13.81c-.5.06-.87.49-.87.99l.01 4.68c0 .72.73 1.2 1.39.92z"/></svg>
+        </button>
+      </div>
+      <div class="qlist">
+        <div class="q" data-q="宜宾市公安局的上级部门是谁？" onclick="ask(this)"><span class="tag">组织架构</span><span>宜宾市公安局的上级部门是谁？</span></div>
+        <div class="q" data-q="省公安厅有哪些平级单位？" onclick="ask(this)"><span class="tag">组织架构</span><span>省公安厅有哪些平级单位？</span></div>
+        <div class="q" data-q="三级应急响应由谁决定启动？" onclick="ask(this)"><span class="tag">响应权限</span><span>三级应急响应由谁决定启动？</span></div>
+        <div class="q" data-q="地质灾害发生后群众转移安置怎么做？" onclick="ask(this)"><span class="tag">预案条文</span><span>地质灾害发生后群众转移安置怎么做？</span></div>
+        </div>
+      </div>
+      <p class="foot-note">基于《四川省突发地质灾害应急预案》与《宜宾市突发地质灾害应急预案（试行）》，查单位上下级、平级、职责权限，检索预案条文</p>
+    </div>
+    <div id="messages"></div>
+  </div>
+</main>
+
+<footer></footer>
+
+<div class="modal" id="techModal" onclick="if(event.target===this)closeTech()">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="ball" style="width:30px;height:30px"><div class="eye l"></div><div class="eye r"></div></div>
+      <h2>我有什么不同？</h2>
+      <button class="modal-close" onclick="closeTech()">×</button>
+    </div>
+    <div class="modal-sub">你的一句话，在我身体里要经过这六道关卡。</div>
+
+  <div class="modal-cols">
+  <div>
+    <p class="band-intro">我的身体里有一支<b>乐队</b>：一位<b>指挥家</b>和三位<b>演奏者</b>。你的问题进来后，指挥家先听懂你想问什么，再把任务分派给最合适的演奏者；演奏者各展所长，最后由指挥家把结果汇成回答。</p>
+    <svg class="band-svg" viewBox="0 0 320 230" xmlns="http://www.w3.org/2000/svg">
+      <!-- 指挥台 -->
+      <rect x="38" y="158" width="64" height="10" rx="4" fill="#F3a884" opacity=".85"/>
+      <!-- 指挥家小球 -->
+      <g>
+        <circle cx="70" cy="128" r="30" fill="url(#ballgrad)"/>
+        <!-- 眼睛（望向演奏者） -->
+        <rect x="72" y="118" width="5" height="8" rx="2.5" fill="#FBFAF2"/>
+        <rect x="82" y="118" width="5" height="8" rx="2.5" fill="#FBFAF2"/>
+        <!-- 举起的手臂 + 指挥棒 -->
+        <line x1="88" y1="128" x2="112" y2="104" stroke="#E8F174" stroke-width="5" stroke-linecap="round"/>
+        <line x1="110" y1="102" x2="126" y2="88" stroke="#2E2C24" stroke-width="2.5" stroke-linecap="round"/>
+        <!-- 音符 -->
+        <text x="128" y="80" font-size="15" fill="#F3a884">♪</text>
+      </g>
+      <text x="70" y="186" text-anchor="middle" font-size="10.5" fill="#F3a884" font-family="monospace">orchestrator</text>
+
+      <!-- 演奏者 1：架构 -->
+      <g>
+        <circle cx="212" cy="72" r="22" fill="url(#ballgrad)"/>
+        <rect x="206" y="66" width="4" height="6.5" rx="2" fill="#FBFAF2"/>
+        <rect x="214" y="66" width="4" height="6.5" rx="2" fill="#FBFAF2"/>
+        <!-- 小提琴（抽象） -->
+        <ellipse cx="236" cy="86" rx="7" ry="5" fill="#ECE340" transform="rotate(-30 236 86)"/>
+        <line x1="240" y1="82" x2="252" y2="70" stroke="#2E2C24" stroke-width="2" stroke-linecap="round"/>
+      </g>
+      <text x="222" y="108" text-anchor="middle" font-size="10.5" fill="#F3a884" font-family="monospace">architecture</text>
+
+      <!-- 演奏者 2：条文 -->
+      <g>
+        <circle cx="266" cy="140" r="22" fill="url(#ballgrad)"/>
+        <rect x="260" y="134" width="4" height="6.5" rx="2" fill="#FBFAF2"/>
+        <rect x="268" y="134" width="4" height="6.5" rx="2" fill="#FBFAF2"/>
+        <!-- 乐谱 -->
+        <rect x="280" y="140" width="18" height="13" rx="2" fill="#FFFFFF" stroke="#F3a884" stroke-width="1.5"/>
+        <line x1="283" y1="144" x2="295" y2="144" stroke="#F3a884" stroke-width="1"/>
+        <line x1="283" y1="148" x2="295" y2="148" stroke="#F3a884" stroke-width="1"/>
+      </g>
+      <text x="266" y="176" text-anchor="middle" font-size="10.5" fill="#F3a884" font-family="monospace">policies</text>
+
+      <!-- 演奏者 3：接待 -->
+      <g>
+        <circle cx="196" cy="182" r="22" fill="url(#ballgrad)"/>
+        <rect x="190" y="176" width="4" height="6.5" rx="2" fill="#FBFAF2"/>
+        <rect x="198" y="176" width="4" height="6.5" rx="2" fill="#FBFAF2"/>
+        <!-- 圆号 -->
+        <circle cx="218" cy="192" r="6" fill="none" stroke="#ECE340" stroke-width="2.5"/>
+        <circle cx="218" cy="192" r="2" fill="#ECE340"/>
+      </g>
+      <text x="196" y="218" text-anchor="middle" font-size="10.5" fill="#F3a884" font-family="monospace">general</text>
+
+      <defs>
+        <radialGradient id="ballgrad" cx=".5" cy=".5" r=".5">
+          <stop offset="0" stop-color="#ECE340"/>
+          <stop offset=".45" stop-color="#ECE340"/>
+          <stop offset=".82" stop-color="#E8F174"/>
+        </radialGradient>
+      </defs>
+    </svg>
+    <p class="band-cap">指挥家听懂意图，三位演奏者分工演奏</p>
+  </div>
+
+  <div>
+    <div class="stage"><div class="rail"><div class="dot"></div><div class="wire"></div></div>
+      <div class="body"><b>你的一句话</b><span>例如"市公安局的上级部门是谁？"</span></div></div>
+
+    <div class="stage"><div class="rail"><div class="dot"></div><div class="wire"></div></div>
+      <div class="body"><b>指挥家听懂你（三路融合意图识别）</b><span>LLM 语义理解（70%）+ 向量相似度（20%）+ 关键词模式（10%）加权投票，置信度低于 0.5 自动降级，三路并行不串行等待</span></div></div>
+
+    <div class="stage"><div class="rail"><div class="dot"></div><div class="wire"></div></div>
+      <div class="body"><b>指挥家分派任务（Orchestrator）</b><span>听懂意图后决定由谁演奏：意图直通 + 领域关键词打分；双模型分工——指挥用 Kimi，演奏用 DeepSeek</span></div></div>
+
+    <div class="stage"><div class="rail"><div class="dot"></div><div class="wire"></div></div>
+      <div class="body"><b>三位演奏者各司其职</b>
+        <span class="agents">
+          <em>ArchitectureAgent <i>—— 职能骨架查表：114 个单位节点、142 条关系，上级/平级/下级/权限即查即得</i></em>
+          <em>PoliciesAgent <i>—— ChromaDB 向量库语义检索两份预案原文切块，回答标注页码</i></em>
+          <em>GeneralAgent <i>—— 接待与兜底，信息不足时只问必要字段</i></em>
+        </span></div></div>
+
+    <div class="stage"><div class="rail"><div class="dot"></div><div class="wire"></div></div>
+      <div class="body"><b>回答组装</b><span>结论标注预案名称与页码；查不到时如实说明并给候选，不编造</span></div></div>
+
+    <div class="stage"><div class="rail"><div class="dot"></div><div class="wire"></div></div>
+      <div class="body"><b>全程监控与评测</b><span>每次调用的延迟、成功率、工具轨迹实时采集，支持 LLM 自动评测打分</span></div></div>
+
+  </div>
+  </div>
+
+  <div class="modal-foot">监控数据实时可见 → <a href="http://127.0.0.1:8000/monitor" target="_blank">打开监控面板</a></div>
+  </div>
+</div>
+
+<script>
+const API = "http://127.0.0.1:8000/chat";
+const messages = document.getElementById("messages");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("sendBtn");
+const welcomeBall = document.getElementById("welcomeBall");
+let busy = false;
+
+/* 视线：默认看向别处；输入框聚焦或有文字时转过来 */
+function updateGaze() {
+  const attentive = document.activeElement === input || input.value.length > 0;
+  [welcomeBall].forEach(b => {
+    b.classList.toggle("attentive", attentive);
+    b.classList.toggle("away", !attentive);
+  });
+}
+input.addEventListener("focus", updateGaze);
+input.addEventListener("blur", updateGaze);
+input.addEventListener("input", updateGaze);
+
+/* 引导气泡：悬停小球 → 小球左移、气泡浮现；点开技术透视后保持，关闭后小球平移回去、气泡消失 */
+const bobEl = document.querySelector(".bob");
+let techOpen = false;
+/* enter/leave 都绑在 .bob（含其静态热区）上：指针进入热区开 peek，离开整个区域才关 */
+bobEl.addEventListener("mouseenter", () => { if (!techOpen) bobEl.classList.add("peek"); });
+bobEl.addEventListener("mouseleave", () => { if (!techOpen) bobEl.classList.remove("peek"); });
+welcomeBall.addEventListener("touchstart", () => bobEl.classList.toggle("peek"), { passive: true });
+
+function openTech() {
+  techOpen = true;
+  document.getElementById("techModal").classList.add("open");
+}
+function closeTech() {
+  techOpen = false;
+  document.getElementById("techModal").classList.remove("open");
+  bobEl.classList.remove("peek");
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeTech(); });
+
+function setBalls(state) {
+  [welcomeBall].forEach(b => {
+    if (b.classList.contains("flying")) return;
+    b.classList.remove("thinking", "done");
+    if (state) b.classList.add(state);
+  });
+}
+
+/* 点击案例列表中的某一行：取 data-q 属性里的问题文本（避免把分类标签也带进去） */
+function ask(el) {
+  if (busy) return;
+  input.value = el.dataset.q;
+  send();
+}
+
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+input.addEventListener("input", () => {
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 120) + "px";
+});
+
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/* 轻量 markdown 渲染：标题、加粗、表格、列表、分隔线 */
+function md(src) {
+  const lines = src.split("\n");
+  let html = "", inTable = false, inList = false, rows = [];
+  const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  const flushTable = () => {
+    if (!rows.length) return;
+    html += "<table>";
+    rows.forEach((r, i) => {
+      if (/^[\s|:-]+$/.test(r)) return;               // 分隔行
+      const tag = i === 0 ? "th" : "td";
+      const cells = r.replace(/^\||\|$/g, "").split("|").map(c => inline(c.trim()));
+      html += "<tr>" + cells.map(c => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
+    });
+    html += "</table>"; rows = [];
+  };
+  const flushList = () => { if (inList) { html += "</ul>"; inList = false; } };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (line.trim().startsWith("|")) { flushList(); rows.push(line.trim()); inTable = true; continue; }
+    if (inTable) { flushTable(); inTable = false; }
+    const t = line.trim();
+    if (!t) { flushList(); continue; }
+    if (/^-{3,}$/.test(t)) { flushList(); html += "<hr>"; continue; }
+    const h = t.match(/^(#{1,3})\s+(.*)$/);
+    if (h) { flushList(); html += `<h${h[1].length + 1}>${inline(h[2])}</h${h[1].length + 1}>`; continue; }
+    const li = t.match(/^[-*]\s+(.*)$/);
+    if (li) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inline(li[1])}</li>`; continue; }
+    const ol = t.match(/^\d+\.\s+(.*)$/);
+    if (ol) { flushList(); html += `<p>${inline(t)}</p>`; continue; }
+    flushList(); html += `<p>${inline(t)}</p>`;
+  }
+  flushTable(); flushList();
+  return html;
+}
+
+function ballHTML(cls) {
+  return `<div class="ball ${cls}"><div class="eye l"></div><div class="eye r"></div></div>`;
+}
+
+let thinkRow = null;
+let thinkTimer = null;
+let thinkStart = 0;
+const THINK_STAGES = ["正在识别你的意图…", "指挥家正在分派任务…", "演奏者正在调用工具…", "正在组织回答…"];
+function showThinking() {
+  messages.insertAdjacentHTML("beforeend",
+    `<div class="msg thinking-row" id="thinkRow">${ballHTML("thinking")}<span class="think-text">${THINK_STAGES[0]}</span></div>`);
+  thinkRow = document.getElementById("thinkRow");
+  thinkStart = performance.now();
+  let i = 0;
+  thinkTimer = setInterval(() => {
+    i = (i + 1) % THINK_STAGES.length;
+    const el = thinkRow && thinkRow.querySelector(".think-text");
+    if (el) el.textContent = THINK_STAGES[i];
+  }, 2600);
+}
+function hideThinking() {
+  if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null; }
+  if (thinkRow) { thinkRow.remove(); thinkRow = null; }
+}
+
+function flyBallTo(rowEl) {
+  const w = document.getElementById("welcome");
+  if (w.style.display === "none") return;
+  const inputbox = document.getElementById("inputbox");
+  const from = welcomeBall.getBoundingClientRect();
+  // 先隐藏欢迎屏，让消息区完成上移，再测目标落点（顺序错了落点会偏）
+  w.style.display = "none";
+  bobEl.classList.remove("peek");
+  // 输入框从首屏正中回落到底部 footer（只发生一次）
+  document.querySelector("footer").appendChild(inputbox);
+  document.querySelector("footer").style.display = "flex";
+  const target = rowEl.querySelector(".ball");
+  target.style.visibility = "hidden";      // 先隐身占位，等克隆体落地再现身
+  const to = target.getBoundingClientRect();
+  // 克隆体保持原样（含大球尺寸和眼睛），整体平移+缩放
+  const clone = welcomeBall.cloneNode(true);
+  clone.removeAttribute("id");
+  clone.classList.add("flying");
+  clone.classList.remove("away", "attentive");
+  Object.assign(clone.style, {
+    left: from.left + "px", top: from.top + "px",
+    width: from.width + "px", height: from.height + "px",
+  });
+  document.body.appendChild(clone);
+  requestAnimationFrame(() => {
+    const dx = to.left + to.width/2 - (from.left + from.width/2);
+    const dy = to.top + to.height/2 - (from.top + from.height/2);
+    const sc = to.width / from.width;
+    clone.style.transform = `translate(${dx}px, ${dy}px) scale(${sc})`;
+  });
+  // 落地瞬间：克隆体退场，目标小球无缝接上并进入思考态
+  setTimeout(() => {
+    clone.remove();
+    target.style.visibility = "";
+  }, 560);
+}
+
+function addUserMsg(text) {
+  messages.insertAdjacentHTML("beforeend",
+    `<div class="msg user"><div class="bubble-user">${esc(text)}</div></div>`);
+}
+
+let thinkElapsed = 0;
+function traceHTML(meta) {
+  if (!meta) return "";
+  const steps = [];
+  if (meta.intent) {
+    const conf = meta.intent_confidence != null ? `（置信度 ${meta.intent_confidence}）` : "";
+    steps.push(`<b>意图识别</b> → ${esc(meta.intent)}${conf}`);
+  }
+  const ss = meta.intent_source_scores;
+  if (ss && (ss.llm != null)) {
+    steps.push(`<b>三路得分</b> → LLM ${ss.llm} · 向量 ${ss.embedding} · 关键词 ${ss.pattern}`);
+  }
+  if (meta.primary_agent) {
+    const reason = meta.routing_reason ? `<br><span style="font-size:11.5px">${esc(meta.routing_reason)}</span>` : "";
+    steps.push(`<b>路由分派</b> → ${esc(meta.primary_agent)}${reason}`);
+  }
+  if (meta.tools_used && meta.tools_used.length) {
+    steps.push(`<b>工具调用</b> → ${meta.tools_used.map(esc).join("、")}`);
+  }
+  if (meta.latency_ms) {
+    steps.push(`<b>端到端耗时</b> → ${(meta.latency_ms/1000).toFixed(1)} 秒`);
+  }
+  if (!steps.length) return "";
+  return `<div class="trace-head" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+    <span class="tick">✓</span> 思考已完成 · ${thinkElapsed.toFixed(1)}s <span class="arrow">▶</span></div>
+    <div class="trace">${steps.map(t => `<div>${t}</div>`).join("")}</div>`;
+}
+
+function addAiMsg(text, meta) {
+  const chips = [];
+  if (meta) {
+    if (meta.primary_agent) chips.push(`<span class="hl">${esc(meta.primary_agent)}</span>`);
+    if (meta.intent) chips.push(`<span>${esc(meta.intent)}</span>`);
+    (meta.tools_used || []).forEach(t => chips.push(`<span>${esc(t)}</span>`));
+  }
+  messages.insertAdjacentHTML("beforeend",
+    `<div class="msg"><div class="ball" style="width:30px;height:30px"><div class="eye l" style="top:36%"></div><div class="eye r" style="top:36%"></div></div>
+     <div class="card-ai">${traceHTML(meta)}${md(text)}${chips.length ? `<div class="meta">${chips.join("")}</div>` : ""}</div></div>`);
+}
+
+function addError(text) {
+  messages.insertAdjacentHTML("beforeend",
+    `<div class="msg"><div class="card-ai error">${esc(text)}</div></div>`);
+}
+
+async function send() {
+  const text = input.value.trim();
+  if (!text || busy) return;
+  busy = true; sendBtn.disabled = true;
+  addUserMsg(text);
+  showThinking();
+  flyBallTo(thinkRow);
+  input.value = ""; input.style.height = "auto";
+  input.blur(); updateGaze();
+  scrollToBottom();
+  try {
+    const resp = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text })
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    hideThinking();
+    thinkElapsed = (performance.now() - thinkStart) / 1000;
+    addAiMsg(data.response || "（无回复内容）", data);
+  } catch (e) {
+    hideThinking();
+    addError("请求失败：" + e.message + "。请确认后端服务已启动（python -m uvicorn api.main:app --port 8000）。");
+  }
+  busy = false; sendBtn.disabled = false;
+  scrollToBottom();
+}
+
+function scrollToBottom() {
+  document.querySelector("main").scrollTop = document.querySelector("main").scrollHeight;
+}
+</script>
+</body>
+</html>
